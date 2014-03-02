@@ -37,20 +37,20 @@ func NewWriter(w io.Writer, interval time.Duration) *Stats {
 func (stats *Stats) gather_stats(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	for {
-		fmt.Println("head of loop")
+		//fmt.Println("head of loop")
 		select {
 		case incoming, ok := <-stats.c:
-			fmt.Println("got incoming", incoming)
+			//fmt.Println("got incoming", incoming)
 			if ok {
 				stats.data[incoming.key] += incoming.value
 			} else {
 				ticker.Stop()
-				fmt.Println("writing from closed chan")
+				//fmt.Println("writing from closed chan")
 				stats.write()
 				return
 			}
 		case now := <-ticker.C:
-			fmt.Println("got ticker and writing:", now)
+			//fmt.Println("got ticker and writing:", now)
 			stats.write()
 		}
 
@@ -88,8 +88,8 @@ func (s *Stats) rates(time_delta time.Duration) StatMap {
 }
 
 // Increment a statistic by a certain amount (specify negative value to decrement)
-func (s *Stats) Add(k string, v int64) {
-	s.c <- IncomingStat{k, v}
+func (s *Stats) Add(k string, v int) {
+	s.c <- IncomingStat{k, int64(v)}
 }
 
 // Dump a copy of our data into a new map for external consumption
@@ -102,7 +102,7 @@ func (s *Stats) Data() map[string]int64 {
 
 // Stop using this set of statistics
 func (s *Stats) Stop() {
-	fmt.Println("length:", len(s.c))
+	//fmt.Println("length:", len(s.c))
 	close(s.c)
 }
 
