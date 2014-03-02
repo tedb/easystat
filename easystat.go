@@ -49,7 +49,7 @@ func (stats *Stats) gather_stats(interval time.Duration) {
 				stats.write()
 				return
 			}
-		case now := <-ticker.C:
+		case <-ticker.C:
 			//fmt.Println("got ticker and writing:", now)
 			stats.write()
 		}
