@@ -6,14 +6,16 @@ import (
 	"time"
 )
 
+type StatMap map[string]int64
+
 // instantiable struct w/ OO style methods
 type Stats struct {
 	c         chan IncomingStat
-	data      map[string]int64
+	data      StatMap
 	w         io.Writer
 	started   time.Time
 	last_time time.Time
-	last_data map[string]int64
+	last_data StatMap
 }
 
 type IncomingStat struct {
@@ -21,44 +23,94 @@ type IncomingStat struct {
 	value int64
 }
 
-// return a new initialized Stats struct, and launch goroutine to:
-// - read from channel and increment
-// - every interval, write stats to w, which could be a file, os.Stderr, or os.Stdout
+// return a new initialized Stats struct, and launch gathering goroutine
 func NewWriter(w io.Writer, interval time.Duration) *Stats {
-	now := time.Now()
-	stats := &Stats{make(chan IncomingStat), make(map[string]int64), w, now, now, make(map[string]int64)}
-	go func() {
-
-		ticker := time.NewTicker(interval)
-		for {
-			select {
-			case incoming, ok := <-stats.c:
-				if ok {
-					stats.data[incoming.key] += incoming.value
-				} else {
-					stats.write(time.Now())
-					ticker.Stop()
-					return
-				}
-			case now := <-ticker.C:
-				stats.write(now)
-			}
-
-		}
-	}()
+	initial_now := time.Now()
+	stats := &Stats{make(chan IncomingStat, 100), make(StatMap), w, initial_now, initial_now, make(StatMap)}
+	go stats.gather_stats(interval)
 	return stats
 }
 
-func (s *Stats) write(now time.Time) {
-	fmt.Fprintf(s.w, "%v %v\n", now, s.data)
+// goroutine to:
+// - read from channel and increment
+// - every interval, write stats to w, which could be a file, os.Stderr, or os.Stdout
+func (stats *Stats) gather_stats(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	for {
+		fmt.Println("head of loop")
+		select {
+		case incoming, ok := <-stats.c:
+			fmt.Println("got incoming", incoming)
+			if ok {
+				stats.data[incoming.key] += incoming.value
+			} else {
+				ticker.Stop()
+				fmt.Println("writing from closed chan")
+				stats.write()
+				return
+			}
+		case now := <-ticker.C:
+			fmt.Println("got ticker and writing:", now)
+			stats.write()
+		}
 
-	// copy current data into previous, so we can compare against it next time
-	s.last_time = now
-	for k, v := range s.data {
-		s.last_data[k] = v
 	}
 }
 
+func (s *Stats) write() {
+	now := time.Now()
+	time_delta := now.Sub(s.last_time)
+	since_start := now.Sub(s.started)
+	fmt.Fprintf(s.w, "%v %v: %#v %#v %#v\n", since_start, time_delta, s.data, s.deltas(), s.rates(time_delta))
+
+	// copy current data into previous, so we can compare against it next time
+	s.last_time = now
+	copy_map(s.data, s.last_data)
+}
+
+// return new map showing difference from old to new values
+func (s *Stats) deltas() StatMap {
+	deltas := make(StatMap)
+	for k, v := range s.data {
+		deltas[k] = v - s.last_data[k]
+	}
+	return deltas
+}
+
+// return new map showing rates of increment from old to new values
+func (s *Stats) rates(time_delta time.Duration) StatMap {
+	rates := make(StatMap)
+	time_delta_seconds := time_delta.Seconds()
+	for k, v := range s.data {
+		rates[k] = int64(float64(v-s.last_data[k]) / time_delta_seconds)
+	}
+	return rates
+}
+
+// Increment a statistic by a certain amount (specify negative value to decrement)
 func (s *Stats) Add(k string, v int64) {
 	s.c <- IncomingStat{k, v}
+}
+
+// Dump a copy of our data into a new map for external consumption
+// probably not concurrency safe
+func (s *Stats) Data() map[string]int64 {
+	r := make(map[string]int64)
+	copy_map(s.data, r)
+	return r
+}
+
+// Stop using this set of statistics
+func (s *Stats) Stop() {
+	fmt.Println("length:", len(s.c))
+	close(s.c)
+}
+
+// copy all the keys/values of one map to another
+// does not remove any keys
+// map variables are actually pointers
+func copy_map(from, to StatMap) {
+	for k, v := range from {
+		to[k] = v
+	}
 }
