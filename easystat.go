@@ -1,21 +1,24 @@
 package easystat
 
 import (
-	"fmt"
+	//"fmt"
 	"io"
 	"time"
 )
 
 type StatMap map[string]int64
 
+type WriteFuncType func(io.Writer, time.Duration, time.Duration, StatMap, StatMap, StatMap)
+
 // instantiable struct w/ OO style methods
 type Stats struct {
-	c         chan IncomingStat
-	data      StatMap
-	w         io.Writer
-	started   time.Time
-	last_time time.Time
-	last_data StatMap
+	c          chan IncomingStat
+	data       StatMap
+	w          io.Writer
+	started    time.Time
+	last_time  time.Time
+	last_data  StatMap
+	write_func WriteFuncType
 }
 
 type IncomingStat struct {
@@ -24,9 +27,9 @@ type IncomingStat struct {
 }
 
 // return a new initialized Stats struct, and launch gathering goroutine
-func NewWriter(w io.Writer, interval time.Duration) *Stats {
+func NewWriter(w io.Writer, interval time.Duration, write_func WriteFuncType) *Stats {
 	initial_now := time.Now()
-	stats := &Stats{make(chan IncomingStat, 100), make(StatMap), w, initial_now, initial_now, make(StatMap)}
+	stats := &Stats{make(chan IncomingStat, 100), make(StatMap), w, initial_now, initial_now, make(StatMap), write_func}
 	go stats.gather_stats(interval)
 	return stats
 }
@@ -61,7 +64,8 @@ func (s *Stats) write() {
 	now := time.Now()
 	time_delta := now.Sub(s.last_time)
 	since_start := now.Sub(s.started)
-	fmt.Fprintf(s.w, "%v %v: %#v %#v %#v\n", since_start, time_delta, s.data, s.deltas(), s.rates(time_delta))
+	//fmt.Fprintf(s.w, "%v %v: %#v %#v %#v\n", since_start, time_delta, s.data, s.deltas(), s.rates(time_delta))
+	s.write_func(s.w, since_start, time_delta, s.data, s.deltas(), s.rates(time_delta))
 
 	// copy current data into previous, so we can compare against it next time
 	s.last_time = now
